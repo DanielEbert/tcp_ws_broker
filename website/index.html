@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket Receiver</title>
+</head>
+
+<body>
+    <div id="output"></div>
+
+    <script>
+        const outputDiv = document.getElementById('output');
+        let socket;
+        let recvCount = 0;
+        let startTimeSec = Date.now() / 1000;
+
+        function connectWebSocket() {
+            socket = new WebSocket('ws://127.0.0.1:7001');
+            socket.binaryType = 'arraybuffer';
+
+            socket.onopen = () => {
+                recvCount = 0;
+                outputDiv.textContent = recvCount;
+            };
+
+            socket.onmessage = (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    const uint8Array = new Uint8Array(event.data);
+                    recvCount += uint8Array.length;
+                    let timeUntilNow = (Date.now() / 1000) - startTimeSec;
+
+                    outputDiv.textContent = "Bytes/sec: " + Math.round(recvCount / timeUntilNow);
+
+                    console.log(Math.round(recvCount / timeUntilNow))
+                }
+            };
+
+            socket.onclose = (event) => {
+                socket = null;
+            };
+
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+        }
+
+        connectWebSocket();
+
+    </script>
+</body>
+
+</html>
