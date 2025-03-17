@@ -1,25 +1,35 @@
 #include <ixwebsocket/IXWebSocketServer.h>
+#include <unordered_map>
+#include <mutex>
+#include <thread>
+#include <chrono>
+#include <string>
+#include <cstdint>
 
 int main()
 {
     ix::WebSocketServer server(8080);
 
-    std::set<std::shared_ptr<ix::WebSocket>> clients;
+    std::unordered_map<uintptr_t, ix::WebSocket *> clients;
     std::mutex clientsMutex;
 
-    server.setOnConnectionCallback([&clients, &clientsMutex](std::weak_ptr<ix::WebSocket> weakWebSocket,
-                                                             std::shared_ptr<ix::ConnectionState> connectionState)
-                                   {
-        if (auto webSocket = weakWebSocket.lock()) {
-            webSocket->setOnMessageCallback([](const ix::WebSocketMessagePtr& msg) {
-                if (msg->type == ix::WebSocketMessageType::Message) {
-                    // Handle incoming messages if needed
-                }
-            });
+    server.setOnClientMessageCallback([&clients, &clientsMutex](
+                                          std::shared_ptr<ix::ConnectionState> connectionState, ix::WebSocket &webSocket, const ix::WebSocketMessagePtr &msg)
+                                      {
 
-            std::lock_guard<std::mutex> lock(clientsMutex);
-            clients.insert(webSocket); 
-        } });
+            uintptr_t connectionId = reinterpret_cast<uintptr_t>(&webSocket);
+            {
+                std::lock_guard<std::mutex> lock(clientsMutex);
+                clients[connectionId] = &webSocket;
+            }
+
+            webSocket.setOnMessageCallback([&connectionId, &clients, &clientsMutex](const ix::WebSocketMessagePtr& msg) {
+                // unused  if (msg->type == ix::WebSocketMessageType::Message) { }
+                if (msg->type == ix::WebSocketMessageType::Close) {
+                    std::lock_guard<std::mutex> lock(clientsMutex);
+                    clients.erase(connectionId);
+                }
+            }); });
 
     server.listen();
     server.start();
@@ -27,16 +37,16 @@ int main()
     auto broadcastMessage = [&clients, &clientsMutex](const std::string &message)
     {
         std::lock_guard<std::mutex> lock(clientsMutex);
-        for (auto &client : clients)
+        for (auto &pair : clients)
         {
-            client->send(message);
+            pair.second->send(message);
         }
     };
 
     while (true)
     {
         broadcastMessage("Hello from server!");
-        std::this_thread::sleep_for(std::chrono::microseconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
 
     server.stop();
